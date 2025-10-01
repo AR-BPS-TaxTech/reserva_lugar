@@ -26,6 +26,12 @@ DIAS_RESERVA = [
 ]
 BUSCAR_DIAS = int(os.getenv("BUSCAR_DIAS", "28"))
 
+# Timeouts para la operación de 'ConsultarReservaciones' (ms)
+# Se pueden sobreescribir desde .env: CONSULTAR_GOTO_TIMEOUT_MS, CONSULTAR_WAIT_LOAD_TIMEOUT_MS, CONSULTAR_SELECTOR_TIMEOUT_MS
+CONSULTAR_GOTO_TIMEOUT = int(os.getenv("CONSULTAR_GOTO_TIMEOUT_MS", "120000"))
+CONSULTAR_WAIT_LOAD_TIMEOUT = int(os.getenv("CONSULTAR_WAIT_LOAD_TIMEOUT_MS", "120000"))
+CONSULTAR_SELECTOR_TIMEOUT = int(os.getenv("CONSULTAR_SELECTOR_TIMEOUT_MS", "90000"))
+
 
 def generar_fechas_objetivo(dias_semana: List[int], dias_adelante: int) -> List[str]:
     hoy = date.today()
@@ -365,18 +371,79 @@ async def intentar_reservar_para_fecha(
         return False
 
 
+async def obtener_fechas_reservadas(page: Page) -> List[str]:
+    """Navega a la página de 'ConsultarReservaciones' y obtiene los valores
+    de la columna 8 (XPath: //tbody//tr/td[8]) de cada fila.
+
+    Devuelve una lista de strings (sin duplicados, orden preservado). Si no
+    encuentra filas o ocurre un error, devuelve lista vacía.
+    """
+    fechas_reservadas: List[str] = []
+
+    try:
+        # Aumentar timeouts porque la página puede tardar más en responder en algunos entornos
+        await page.goto(
+            "https://intranet.mx.deloitte.com/ReservacionesHoteling/ConsultarReservaciones",
+            timeout=120_000,
+        )
+        await page.wait_for_load_state("networkidle", timeout=120_000)
+
+        # Esperar al menos una fila en la tabla de reservas (aumentado a 90s)
+        try:
+            await page.wait_for_selector(
+                "//div[@id='gridmisreservas']//table[1]/tbody/tr", timeout=90_000
+            )
+        except Exception as e:
+            # Registrar el motivo y devolver lista vacía si no aparece la tabla
+            print(f"⚠️ Timeout o error esperando filas en gridmisreservas: {e}")
+            return fechas_reservadas
+
+        # Seleccionar todas las celdas de la columna 8 (td[8])
+        celdas = await page.locator(
+            "//div[@id='gridmisreservas']//table[1]/tbody/tr/td[8]"
+        ).all()
+
+        for cel in celdas:
+            try:
+                txt = (await cel.inner_text()).strip()
+                if not txt:
+                    continue
+                # Normalizar: tomar la primera parte si viene con hora u otro sufijo
+                fecha = txt.split()[0]
+                fechas_reservadas.append(fecha)
+            except Exception:
+                continue
+
+        # Devolver únicos preservando orden
+        seen = set()
+        uniq: List[str] = []
+        for f in fechas_reservadas:
+            if f not in seen:
+                seen.add(f)
+                uniq.append(f)
+
+        return uniq
+
+    except Exception as e:
+        print(f"⚠️ Error obteniendo fechas reservadas desde UI: {e}")
+        return []
+
+
 async def main() -> None:
-    fechas = generar_fechas_objetivo(DIAS_RESERVA, BUSCAR_DIAS)
-    if not fechas:
+    fechas_sin_filtrar = generar_fechas_objetivo(DIAS_RESERVA, BUSCAR_DIAS)
+    if not fechas_sin_filtrar:
         print("❌ No hay fechas objetivo calculadas")
         return
 
-    print(f"🔎 Fechas objetivo: {fechas}")
+    print(f"🔎 Fechas objetivo: {fechas_sin_filtrar}")
 
     async with async_playwright() as playwright:
         browser = await playwright.chromium.launch(headless=False)
         context = await browser.new_context(ignore_https_errors=True)
         page = await context.new_page()
+
+        fechas_reservadas = await obtener_fechas_reservadas(page)
+        fechas = [f for f in fechas_sin_filtrar if f not in fechas_reservadas]
 
         for fecha in fechas:
             print(f"\n--- Procesando fecha {fecha} ---")
