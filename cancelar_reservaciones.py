@@ -79,13 +79,22 @@ async def aceptar_dialogo_si_existe(page: Page, timeout: int = 3000) -> bool:
 
     for sel in modal_selectors:
         try:
-            modal_locator: Locator = page.locator(sel)
-            # esperar brevemente a que el modal sea visible
-            await modal_locator.wait_for(state="visible", timeout=500)
+            # obtener todos los elementos que coinciden y seleccionar el primero visible
+            elems = await page.locator(sel).all()
+            visible_elem = None
+            for el in elems:
+                try:
+                    if await el.is_visible():
+                        visible_elem = el
+                        break
+                except Exception:
+                    continue
 
-            # dentro del modal buscar botones de confirmación en español
-            # Priorizar botones Kendo primarios
-            btn = modal_locator.locator(
+            if not visible_elem:
+                continue
+
+            # dentro del modal visible buscar botones de confirmación en español
+            btn = visible_elem.locator(
                 "button.k-button.k-primary:has-text('si'), button:has-text('Si'), button:has-text('SI'), button:has-text('si'), button:has-text('Sí'), button:has-text('SÍ')"
             )
             if await btn.count() > 0:
@@ -93,11 +102,13 @@ async def aceptar_dialogo_si_existe(page: Page, timeout: int = 3000) -> bool:
                 await btn.first.click()
                 # esperar que el modal se cierre o desaparezca
                 try:
-                    await page.wait_for_selector(sel, state="detached", timeout=3000)
+                    # esperar hasta que el elemento deje de ser visible o se desconecte
+                    await visible_elem.wait_for(state="detached", timeout=3000)
                 except PlaywrightTimeoutError:
                     await page.wait_for_timeout(500)
                 return True
-        except PlaywrightTimeoutError:
+        except Exception:
+            # cualquier excepción aquí la ignoramos y probamos el siguiente selector
             continue
 
     # 3) Intentar localizar botones por rol/texto (p.ej. get_by_role('button', name='si'))
