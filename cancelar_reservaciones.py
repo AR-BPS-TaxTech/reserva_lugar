@@ -45,7 +45,9 @@ TARGET_URL = os.getenv(
 )
 
 
-async def aceptar_dialogo_si_existe(page: Page, timeout: int = 3000) -> bool:
+async def aceptar_dialogo_si_existe(
+    page: Page, timeout: int = 300000
+) -> bool:  # Cambiado a 5 minutos
     """Intenta aceptar un diálogo de confirmación.
 
     Se manejan en prioridad:
@@ -84,7 +86,7 @@ async def aceptar_dialogo_si_existe(page: Page, timeout: int = 3000) -> bool:
             visible_elem = None
             for el in elems:
                 try:
-                    if await el.is_visible():
+                    if await el.is_visible(timeout=300000):  # Cambiado a 5 minutos
                         visible_elem = el
                         break
                 except Exception:
@@ -103,7 +105,9 @@ async def aceptar_dialogo_si_existe(page: Page, timeout: int = 3000) -> bool:
                 # esperar que el modal se cierre o desaparezca
                 try:
                     # esperar hasta que el elemento deje de ser visible o se desconecte
-                    await visible_elem.wait_for(state="detached", timeout=3000)
+                    await visible_elem.wait_for(
+                        state="detached", timeout=300000
+                    )  # Cambiado a 5 minutos
                 except PlaywrightTimeoutError:
                     await page.wait_for_timeout(500)
                 return True
@@ -143,7 +147,9 @@ async def aceptar_dialogo_si_existe(page: Page, timeout: int = 3000) -> bool:
 
 
 async def esperar_confirmacion(
-    page: Page, previous_button: Optional[Locator] = None, timeout: int = 10000
+    page: Page,
+    previous_button: Optional[Locator] = None,
+    timeout: int = 300000,  # Cambiado a 5 minutos
 ) -> None:
     """Espera una confirmación tras la acción de cancelar.
 
@@ -154,7 +160,9 @@ async def esperar_confirmacion(
     """
     try:
         # esperar por una alerta en la página
-        await page.wait_for_selector("div.alert", timeout=timeout)
+        await page.wait_for_selector(
+            "div.alert", timeout=timeout
+        )  # Cambiado a 5 minutos
         print("🔔 Alerta de confirmación detectada en la página")
         # dar tiempo breve para que la alerta se muestre completamente
         await page.wait_for_timeout(800)
@@ -252,12 +260,13 @@ async def main(headless: bool = False, url: Optional[str] = None) -> None:
 
         try:
             print(f"🌐 Navegando a: {url}")
-            await page.goto(url, timeout=90000)
+            await page.goto(url, timeout=300000)  # Cambiado a 5 minutos
 
             # Esperar que la tabla/elementos carguen (selector genérico)
             try:
                 await page.wait_for_selector(
-                    "//div[@id='gridmisreservas']//table//tr", timeout=20000
+                    "//div[@id='gridmisreservas']//table//tr",
+                    timeout=300000,  # Cambiado a 5 minutos
                 )
             except PlaywrightTimeoutError:
                 # si no existe la tabla, seguir con búsqueda de botones
